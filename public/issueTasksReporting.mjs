@@ -639,9 +639,9 @@ async function pushpinIssue(e){
       const subtypeId = document.getElementById("issue-types").value;
       const selectedTypeText = issueTypesSelect.options[issueTypesSelect.selectedIndex].text; // text from <option>
      // const watcherSelect = document.getElementById("issue-watchers");
-      const selectedWatchers = Array.from(watcherSelect.selectedOptions).map(
-        (opt) => opt.value
-      );
+      //const selectedWatchers = Array.from(watcherSelect.selectedOptions).map(
+      //  (opt) => opt.value
+     // );
       const assignSelect = document.getElementById("issue-assigned-to");
       const assignedTo = assignSelect.value;
       const assignedToType =
