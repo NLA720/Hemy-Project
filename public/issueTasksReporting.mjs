@@ -276,7 +276,7 @@ async function pushpinTask(e) {
       const subtypeId = document.getElementById("task-types").value;
       const selectedTypeText = taskTypesSelect.options[taskTypesSelect.selectedIndex].text; // text from <option>
 
-      const watcherSelect = document.getElementById("task-watchers");
+      //const watcherSelect = document.getElementById("task-watchers");
       const selectedWatchers = Array.from(watcherSelect.selectedOptions).map(
         (opt) => opt.value
       );
@@ -313,7 +313,7 @@ async function pushpinTask(e) {
         issueSubtypeId: subtypeId,
         assignedTo: assignedTo,
         assignedToType: assignedToType,
-        watchers: selectedWatchers,
+       // watchers: selectedWatchers,
         startDate: startDate,
         dueDate: dueDate,
         customAttributes: [
@@ -638,7 +638,7 @@ async function pushpinIssue(e){
       const issueTypesSelect = document.getElementById("issue-types");
       const subtypeId = document.getElementById("issue-types").value;
       const selectedTypeText = issueTypesSelect.options[issueTypesSelect.selectedIndex].text; // text from <option>
-      const watcherSelect = document.getElementById("issue-watchers");
+     // const watcherSelect = document.getElementById("issue-watchers");
       const selectedWatchers = Array.from(watcherSelect.selectedOptions).map(
         (opt) => opt.value
       );
@@ -675,7 +675,7 @@ async function pushpinIssue(e){
         issueSubtypeId: subtypeId,
         assignedTo: assignedTo,
         assignedToType: assignedToType,
-        watchers: selectedWatchers,
+      //  watchers: selectedWatchers,
         startDate: startDate,
         dueDate: dueDate,
         customAttributes: [
@@ -1117,8 +1117,8 @@ document.getElementById("edit-form").onsubmit = async (e) => {
 
   // subtype & wacthers
   const subtypeId = document.getElementById("edit-types").value;
-  const watcherSelect = document.getElementById("edit-watchers");
-  const selectedWatchers = Array.from(watcherSelect.selectedOptions).map((opt) => opt.value);
+ // const watcherSelect = document.getElementById("edit-watchers");
+ //const selectedWatchers = Array.from(watcherSelect.selectedOptions).map((opt) => opt.value);
   const assignSelect = document.getElementById("edit-assigned-to");
   const assignedTo = assignSelect.value;
   const assignedToType = assignSelect.selectedOptions[0]?.getAttribute("data-type");
@@ -1135,7 +1135,7 @@ document.getElementById("edit-form").onsubmit = async (e) => {
     issueSubtypeId: subtypeId,
     assignedTo: assignedTo,
     assignedToType: assignedToType,
-    watchers: selectedWatchers,
+   //watchers: selectedWatchers,
     startDate: startDate,
     dueDate: dueDate,
     customAttributes: [
@@ -1699,7 +1699,7 @@ async function populateIssueList(issues) {
                     issue.assignedTo, 
                     issue.startDate, 
                     issue.dueDate, 
-                    issue.watchers,
+                   // issue.watchers,
                     issueTask,
                     hardAssetName,
                     functionalLocation
@@ -1723,7 +1723,7 @@ async function populateIssueList(issues) {
                     issue.assignedTo, 
                     issue.startDate, 
                     issue.dueDate, 
-                    issue.watchers,
+                   // issue.watchers,
                     issueTask,
                     hardAssetName,
                     functionalLocation
@@ -1855,7 +1855,7 @@ async function populateIssueListFiltered(issues) {
                     issue.assignedTo, 
                     issue.startDate, 
                     issue.dueDate, 
-                    issue.watchers,
+                  //  issue.watchers,
                     issueTask,
                     hardAssetName,
                     functionalLocation
@@ -1972,7 +1972,7 @@ async function populateTaskList(tasks) {
                     task.assignedTo, 
                     task.startDate, 
                     task.dueDate, 
-                    task.watchers,
+                  //  task.watchers,
                     issueTask,
                     hardAssetName,
                     functionalLocation
@@ -1997,7 +1997,7 @@ async function populateTaskList(tasks) {
                     task.assignedTo, 
                     task.startDate, 
                     task.dueDate, 
-                    task.watchers,
+                   // task.watchers,
                     issueTask,
                     hardAssetName,
                     functionalLocation
@@ -2129,7 +2129,7 @@ async function populateTaskListFiltered(tasks) {
                     task.assignedTo, 
                     task.startDate, 
                     task.dueDate, 
-                    task.watchers,
+                  //  task.watchers,
                     issueTask,
                     hardAssetName,
                     functionalLocation
@@ -2405,16 +2405,16 @@ async function getProjectMembers(projectId, authToken) {
 
   const select = document.getElementById("issue-assigned-to");
   const selectFilter = document.getElementById("issue-filter-assigned-to");
-  const selectWatchers = document.getElementById("issue-watchers");
+ // const selectWatchers = document.getElementById("issue-watchers");
   const selectTask = document.getElementById("task-assigned-to");
-  const selectWatchersTask = document.getElementById("task-watchers");
+ // const selectWatchersTask = document.getElementById("task-watchers");
   const selectTaskFilter = document.getElementById("task-filter-assigned-to");
   const selectEdit = document.getElementById("edit-assigned-to");
-  const selectWatchersEdit = document.getElementById("edit-watchers");
+  //const selectWatchersEdit = document.getElementById("edit-watchers");
   select.innerHTML = ""; // clear old options
-  selectWatchers.innerHTML = ""; // clear old options
+ // selectWatchers.innerHTML = ""; // clear old options
   selectTask.innerHTML = ""; // clear old options
-  selectWatchersTask.innerHTML = ""; // clear old options
+ // selectWatchersTask.innerHTML = ""; // clear old options
 
   results.forEach((user) => {
     const option = document.createElement("option");
@@ -2431,9 +2431,9 @@ async function getProjectMembers(projectId, authToken) {
     watcherOption.value = user.autodeskId;
     watcherOption.textContent = user.name;
     watcherOption.setAttribute("data-type", "user"); // <-- Add this line
-    selectWatchers.appendChild(watcherOption);
-    selectWatchersTask.appendChild(watcherOption.cloneNode(true)); // Clone to task watchers select
-    selectWatchersEdit.appendChild(watcherOption.cloneNode(true)); // Clone to edit watchers select
+   // selectWatchers.appendChild(watcherOption);
+   // selectWatchersTask.appendChild(watcherOption.cloneNode(true)); // Clone to task watchers select
+   // selectWatchersEdit.appendChild(watcherOption.cloneNode(true)); // Clone to edit watchers select
   });
 }
 // #endregion
@@ -2463,10 +2463,10 @@ async function getCompanies(projectId, authToken) {
 
   const select = document.getElementById("issue-assigned-to");
   const selectTask = document.getElementById("task-assigned-to");
-  const selectWatchers = document.getElementById("issue-watchers");
-  const selectWatchersTask = document.getElementById("task-watchers");
+ // const selectWatchers = document.getElementById("issue-watchers");
+ // const selectWatchersTask = document.getElementById("task-watchers");
   const selectEdit = document.getElementById("edit-assigned-to");
-  const selectWatchersEdit = document.getElementById("edit-watchers");
+ // const selectWatchersEdit = document.getElementById("edit-watchers");
 
   results.forEach((companies) => {
     const option = document.createElement("option");
@@ -2481,29 +2481,29 @@ async function getCompanies(projectId, authToken) {
     watcherOption.value = companies.id;
     watcherOption.textContent = companies.name;
     watcherOption.setAttribute("data-type", "company"); // <-- Add this line
-    selectWatchers.appendChild(watcherOption);
-    selectWatchersTask.appendChild(watcherOption.cloneNode(true)); // Clone to task watchers select
-    selectWatchersEdit.appendChild(watcherOption.cloneNode(true)); // Clone to edit watchers select
+    //selectWatchers.appendChild(watcherOption);
+   //selectWatchersTask.appendChild(watcherOption.cloneNode(true)); // Clone to task watchers select
+   // selectWatchersEdit.appendChild(watcherOption.cloneNode(true)); // Clone to edit watchers select
   });
 
-  const watchersSelect = new Choices("#issue-watchers", {
-    placeholderValue: "Select watchers",
-    removeItemButton: true,
-    shouldSort: false,
-  });
+ // const watchersSelect = new Choices("#issue-watchers", {
+  //  placeholderValue: "Select watchers",
+ //   removeItemButton: true,
+//    shouldSort: false,
+// });
 
-  const watchersSelectTask = new Choices("#task-watchers", {
-    placeholderValue: "Select watchers",
-    removeItemButton: true,
-    shouldSort: false,
-  });
+ // const watchersSelectTask = new Choices("#task-watchers", {
+ //   placeholderValue: "Select watchers",
+ //   removeItemButton: true,
+ //   shouldSort: false,
+ // });
 
-  watchersSelectEdit = new Choices("#edit-watchers", {
-    placeholderValue: "Select watchers",
-    removeItemButton: true,
-    shouldSort: false,
-  });
-}
+ // watchersSelectEdit = new Choices("#edit-watchers", {
+  //  placeholderValue: "Select watchers",
+ //   removeItemButton: true,
+//    shouldSort: false,
+ // });
+//}
 // #endregion
 
 
@@ -2547,12 +2547,12 @@ async function editIssueTask(id, title, description, issueSubtypeId, status, ass
   document.getElementById("edit-functional-location").value = functionalLocation || "";
   document.getElementById("edit-description").value = description || "";
   document.getElementById("edit-assigned-to").value = assignedTo || "";
-  if (watchersSelectEdit) {
-    watchersSelectEdit.removeActiveItems(); // clear old selection
-    if (Array.isArray(watchers)) {
-      watchersSelectEdit.setChoiceByValue(watchers); // watchers is array of IDs
-    }
-  }
+  //if (watchersSelectEdit) {
+   // watchersSelectEdit.removeActiveItems(); // clear old selection
+    //if (Array.isArray(watchers)) {
+    //  watchersSelectEdit.setChoiceByValue(watchers); // watchers is array of IDs
+   // }
+ // }
   document.getElementById("edit-start-date").value = startDate || "";
   document.getElementById("edit-due-date").value = dueDate || "";
   document.getElementById("edit-placement").value = window.modelName || "";
@@ -2581,4 +2581,5 @@ function toBase64(file) {
     };
     reader.onerror = (error) => reject(error);
   });
+}
 }
