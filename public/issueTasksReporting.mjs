@@ -1699,7 +1699,7 @@ async function populateIssueList(issues) {
                     issue.assignedTo, 
                     issue.startDate, 
                     issue.dueDate, 
-                   // issue.watchers,
+                    issue.watchers,
                     issueTask,
                     hardAssetName,
                     functionalLocation
@@ -1723,7 +1723,7 @@ async function populateIssueList(issues) {
                     issue.assignedTo, 
                     issue.startDate, 
                     issue.dueDate, 
-                   // issue.watchers,
+                    issue.watchers,
                     issueTask,
                     hardAssetName,
                     functionalLocation
@@ -1855,7 +1855,7 @@ async function populateIssueListFiltered(issues) {
                     issue.assignedTo, 
                     issue.startDate, 
                     issue.dueDate, 
-                  //  issue.watchers,
+                    issue.watchers,
                     issueTask,
                     hardAssetName,
                     functionalLocation
@@ -1972,7 +1972,7 @@ async function populateTaskList(tasks) {
                     task.assignedTo, 
                     task.startDate, 
                     task.dueDate, 
-                  //  task.watchers,
+                   task.watchers,
                     issueTask,
                     hardAssetName,
                     functionalLocation
@@ -1997,7 +1997,7 @@ async function populateTaskList(tasks) {
                     task.assignedTo, 
                     task.startDate, 
                     task.dueDate, 
-                   // task.watchers,
+                   task.watchers,
                     issueTask,
                     hardAssetName,
                     functionalLocation
@@ -2129,7 +2129,7 @@ async function populateTaskListFiltered(tasks) {
                     task.assignedTo, 
                     task.startDate, 
                     task.dueDate, 
-                  //  task.watchers,
+                   task.watchers,
                     issueTask,
                     hardAssetName,
                     functionalLocation
@@ -2510,7 +2510,19 @@ async function getCompanies(projectId, authToken) {
 // ! Edit Issue/Task
 // #region Edit Issue/Task
 // ------------------------------------------ EDIT FORM ------------------------------------------------
-async function editIssueTask(id, title, description, issueSubtypeId, status, assignedTo, startDate, dueDate, watchers, issueTask, hardAssetName, functionalLocation) {
+window.editIssueTask = async function (
+  id,
+  title,
+  description,
+  issueSubtypeId,
+  status,
+  assignedTo,
+  startDate,
+  dueDate,
+  issueTask,
+  hardAssetName,
+  functionalLocation
+) {
   const viewer = window.viewerInstance;
   const modelBrowserPanel = document.getElementById("model-browser-panel");
   const filesPanel = document.getElementById("fileContainer");
