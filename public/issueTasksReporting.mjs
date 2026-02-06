@@ -277,9 +277,9 @@ async function pushpinTask(e) {
       const selectedTypeText = taskTypesSelect.options[taskTypesSelect.selectedIndex].text; // text from <option>
 
       //const watcherSelect = document.getElementById("task-watchers");
-      const selectedWatchers = Array.from(watcherSelect.selectedOptions).map(
-        (opt) => opt.value
-      );
+      // const selectedWatchers = Array.from(watcherSelect.selectedOptions).map(
+      //   (opt) => opt.value
+      // );
       const assignSelect = document.getElementById("task-assigned-to");
       const assignedTo = assignSelect.value;
       const assignedToType =
@@ -329,7 +329,10 @@ async function pushpinTask(e) {
             attributeDefinitionId: getAttrIdByTitle("Functional Location"),
             value: document.getElementById("task-functional-location").value,
           },
+       
+        
         ],
+       
 
         linkedDocuments: [
           {
@@ -1699,7 +1702,7 @@ async function populateIssueList(issues) {
                     issue.assignedTo, 
                     issue.startDate, 
                     issue.dueDate, 
-                    issue.watchers,
+                   // issue.watchers,
                     issueTask,
                     hardAssetName,
                     functionalLocation
@@ -1723,7 +1726,7 @@ async function populateIssueList(issues) {
                     issue.assignedTo, 
                     issue.startDate, 
                     issue.dueDate, 
-                    issue.watchers,
+                  //  issue.watchers,
                     issueTask,
                     hardAssetName,
                     functionalLocation
@@ -1855,7 +1858,7 @@ async function populateIssueListFiltered(issues) {
                     issue.assignedTo, 
                     issue.startDate, 
                     issue.dueDate, 
-                    issue.watchers,
+                   //  issue.watchers,
                     issueTask,
                     hardAssetName,
                     functionalLocation
@@ -1972,7 +1975,7 @@ async function populateTaskList(tasks) {
                     task.assignedTo, 
                     task.startDate, 
                     task.dueDate, 
-                   task.watchers,
+                  //  task.watchers,
                     issueTask,
                     hardAssetName,
                     functionalLocation
@@ -1997,7 +2000,7 @@ async function populateTaskList(tasks) {
                     task.assignedTo, 
                     task.startDate, 
                     task.dueDate, 
-                   task.watchers,
+                 //   task.watchers,
                     issueTask,
                     hardAssetName,
                     functionalLocation
@@ -2129,7 +2132,7 @@ async function populateTaskListFiltered(tasks) {
                     task.assignedTo, 
                     task.startDate, 
                     task.dueDate, 
-                   task.watchers,
+                 //   task.watchers,
                     issueTask,
                     hardAssetName,
                     functionalLocation
