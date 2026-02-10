@@ -376,7 +376,7 @@ async function pushpinTask(e) {
         }
 
         const data = await issueRes.json();
-        showNotification("Issue created successfully");
+        showNotification("Task created successfully");
         document.getElementById("task-details-panel").style.visibility = "hidden";
         document.getElementById("save-task-btn").attributes.disabled = "false";
         document.getElementById("preview").style.width = "97%";
