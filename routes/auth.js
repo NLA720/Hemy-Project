@@ -10,6 +10,7 @@ const upload = multer({ storage: multer.memoryStorage() }); // keeps file in mem
 
 var scopes = 'data:read data:write data:create';
 const querystring = require('querystring');
+const { randomUUID } = require('crypto');
 
 const sql = require('mssql');
 
@@ -550,6 +551,204 @@ router.post('/api/acc/upload/finalize', async (req, res) => {
   }
 });
 
+// Save markup screenshot as ACC issue attachment.
+router.post('/api/acc/syncMarkupAttachment', async (req, res) => {
+  const { projectId, issueId, dataUrl } = req.body;
+  const authHeader = req.headers.authorization;
+  const authToken = authHeader?.split(' ')[1];
+
+  if (!projectId || !issueId || !dataUrl || !authToken) {
+    return res.status(400).json({ error: "Missing projectId, issueId, dataUrl, or Authorization token" });
+  }
+
+  const matches = String(dataUrl).match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (!matches) {
+    return res.status(400).json({ error: "Invalid dataUrl format. Expected base64 image data URL." });
+  }
+
+  const mimeType = matches[1];
+  const base64Data = matches[2];
+  const extension = mimeType.includes("png") ? "png" : "jpg";
+  const filename = `issue-markup-${issueId}-${Date.now()}.${extension}`;
+  const fileBuffer = Buffer.from(base64Data, "base64");
+  const hubId = 'b.7a656dca-000a-494b-9333-d9012c464554';
+
+  // For project API (topFolders), try both forms.
+  const projectIdsForProjectApi = Array.from(
+    new Set([
+      String(projectId).startsWith("b.") ? String(projectId) : `b.${projectId}`,
+      String(projectId).replace(/^b\./, ""),
+    ])
+  );
+  const constructionProjectId = String(projectId).replace(/^b\./, "");
+  const dataProjectId = String(projectId).startsWith("b.")
+    ? String(projectId)
+    : `b.${projectId}`;
+
+  try {
+    // 1) Get top folders and derive root folder (parent of "Project Files").
+    let topFoldersData = null;
+    for (const pid of projectIdsForProjectApi) {
+      const topFoldersRes = await fetch(
+        `https://developer.api.autodesk.com/project/v1/hubs/${hubId}/projects/${pid}/topFolders`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${authToken}` },
+        }
+      );
+      if (topFoldersRes.ok) {
+        topFoldersData = await topFoldersRes.json();
+        break;
+      }
+    }
+
+    if (!topFoldersData?.data?.length) {
+      return res.status(500).json({ error: "Could not resolve project folders for attachment upload." });
+    }
+
+    const projectFilesFolder = topFoldersData.data.find((f) => f?.attributes?.name === "Project Files");
+    const rootFolderId = projectFilesFolder?.relationships?.parent?.data?.id || projectFilesFolder?.id;
+    if (!rootFolderId) {
+      return res.status(500).json({ error: "Could not resolve root folder id for attachment upload." });
+    }
+
+    // 2) Create storage in root folder.
+    const storagePayload = {
+      jsonapi: { version: "1.0" },
+      data: {
+        type: "objects",
+        attributes: { name: filename },
+        relationships: {
+          target: {
+            data: {
+              type: "folders",
+              id: rootFolderId,
+            },
+          },
+        },
+      },
+    };
+
+    const storageRes = await fetch(
+      `https://developer.api.autodesk.com/data/v1/projects/${dataProjectId}/storage`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/vnd.api+json",
+          "Accept": "application/vnd.api+json",
+          "Authorization": `Bearer ${authToken}`,
+        },
+        body: JSON.stringify(storagePayload),
+      }
+    );
+
+    const storageData = await storageRes.json();
+    if (!storageRes.ok) {
+      return res.status(storageRes.status).json({ error: "Storage creation failed", details: storageData });
+    }
+
+    const storageUrn = storageData?.data?.id;
+    if (!storageUrn) {
+      return res.status(500).json({ error: "Storage URN missing from storage response." });
+    }
+
+    const urnSuffix = storageUrn.split("urn:adsk.objects:os.object:")[1] || "";
+    const slashIdx = urnSuffix.indexOf("/");
+    if (slashIdx === -1) {
+      return res.status(500).json({ error: "Unexpected storage URN format.", storageUrn });
+    }
+    const bucketKey = urnSuffix.slice(0, slashIdx);
+    const objectKey = urnSuffix.slice(slashIdx + 1);
+
+    // 3) Request signed S3 upload URL.
+    const signedUploadRes = await fetch(
+      `https://developer.api.autodesk.com/oss/v2/buckets/${encodeURIComponent(bucketKey)}/objects/${encodeURIComponent(objectKey)}/signeds3upload`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${authToken}` },
+      }
+    );
+    const signedUploadData = await signedUploadRes.json();
+    if (!signedUploadRes.ok) {
+      return res.status(signedUploadRes.status).json({ error: "Failed to get signed upload URL", details: signedUploadData });
+    }
+
+    const signedUrl = signedUploadData?.urls?.[0];
+    const uploadKey = signedUploadData?.uploadKey;
+    if (!signedUrl || !uploadKey) {
+      return res.status(500).json({ error: "Signed upload response missing url/uploadKey." });
+    }
+
+    // 4) Upload binary image directly to S3.
+    const putRes = await fetch(signedUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": mimeType,
+        "Content-Length": String(fileBuffer.length),
+      },
+      body: fileBuffer,
+    });
+    if (!putRes.ok) {
+      return res.status(500).json({ error: "Failed uploading image to signed S3 URL." });
+    }
+
+    // 5) Finalize upload.
+    const finalizeRes = await fetch(
+      `https://developer.api.autodesk.com/oss/v2/buckets/${encodeURIComponent(bucketKey)}/objects/${encodeURIComponent(objectKey)}/signeds3upload`,
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${authToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ uploadKey }),
+      }
+    );
+    const finalizeData = await finalizeRes.json();
+    if (!finalizeRes.ok) {
+      return res.status(finalizeRes.status).json({ error: "Failed to finalize attachment upload", details: finalizeData });
+    }
+
+    // 6) Associate uploaded file with issue as attachment.
+    const attachmentPayload = {
+      domainEntityId: issueId,
+      attachments: [
+        {
+          attachmentId: randomUUID(),
+          displayName: filename,
+          fileName: objectKey,
+          attachmentType: "issue-attachment",
+          storageUrn,
+        },
+      ],
+    };
+
+    const attachRes = await fetch(
+      `https://developer.api.autodesk.com/construction/issues/v1/projects/${encodeURIComponent(constructionProjectId)}/attachments`,
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${authToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(attachmentPayload),
+      }
+    );
+    const attachData = await attachRes.json();
+    if (!attachRes.ok) {
+      return res.status(attachRes.status).json({ error: "Failed to attach image to issue", details: attachData });
+    }
+
+    return res.status(200).json({
+      message: "Markup screenshot uploaded as ACC issue attachment.",
+      details: attachData,
+    });
+  } catch (error) {
+    console.error("syncMarkupAttachment error:", error);
+    return res.status(500).json({ error: "Unexpected error", details: error.message });
+  }
+});
+
 // #endregion
 
 
@@ -927,6 +1126,83 @@ router.post('/api/acc/getissuesFiltered', async (req, res) => {
 
 
 
+
+// #region: ISSUE THUMBNAIL (ACC-native)
+router.post('/api/acc/getIssueThumbnail', async (req, res) => {
+  const { projectId, issueId } = req.body;
+  const authHeader = req.headers.authorization;
+  const authToken = authHeader?.split(' ')[1];
+
+  if (!projectId || !issueId || !authToken) {
+    return res.status(400).json({ error: "Missing projectId, issueId, or Authorization token" });
+  }
+
+  const projectIdsToTry = Array.from(
+    new Set([
+      projectId,
+      typeof projectId === "string" && projectId.startsWith("b.") ? projectId.slice(2) : projectId,
+    ].filter(Boolean))
+  );
+
+  function parseStorageUrn(storageUrn) {
+    const prefix = "urn:adsk.objects:os.object:";
+    if (!storageUrn || typeof storageUrn !== "string" || !storageUrn.startsWith(prefix)) return null;
+    const rest = storageUrn.slice(prefix.length);
+    const slashIdx = rest.indexOf("/");
+    if (slashIdx === -1) return null;
+    const bucketKey = rest.slice(0, slashIdx);
+    const objectKey = rest.slice(slashIdx + 1);
+    return { bucketKey, objectKey };
+  }
+
+  async function getSignedDownloadUrlFromStorageUrn(storageUrn) {
+    const parsed = parseStorageUrn(storageUrn);
+    if (!parsed) return null;
+
+    const { bucketKey, objectKey } = parsed;
+    const encodedBucketKey = encodeURIComponent(bucketKey);
+    const encodedObjectKey = encodeURIComponent(objectKey);
+
+    const response = await fetch(
+      `https://developer.api.autodesk.com/oss/v2/buckets/${encodedBucketKey}/objects/${encodedObjectKey}/signeds3download`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${authToken}` },
+      }
+    );
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data?.url || null;
+  }
+
+  // 1) Prefer native ACC snapshot thumbnail from issue.snapshotUrn.
+  for (const pid of projectIdsToTry) {
+    try {
+      const issueRes = await fetch(
+        `https://developer.api.autodesk.com/construction/issues/v1/projects/${encodeURIComponent(pid)}/issues/${encodeURIComponent(issueId)}`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${authToken}` },
+        }
+      );
+      if (!issueRes.ok) continue;
+      const issue = await issueRes.json();
+      const snapshotUrn = issue?.snapshotUrn;
+      if (!snapshotUrn) continue;
+
+      const thumbnailUrl = await getSignedDownloadUrlFromStorageUrn(snapshotUrn);
+      if (!thumbnailUrl) continue;
+
+      return res.status(200).json({ thumbnailUrl });
+    } catch (err) {
+      console.error("SnapshotUrn fallback failed:", pid, issueId, err);
+    }
+  }
+
+  return res.status(200).json({ thumbnailUrl: null });
+});
+// #endregion
 
 // custom attributes
 router.post('/api/acc/getCustomAttributes', async (req, res) => {

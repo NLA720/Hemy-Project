@@ -803,6 +803,19 @@
 
   <div class="edit-reporting-content">
     <form id="edit-form" class="edit-reporting-content">
+
+      <div class="form-group">
+        <label>Issue Thumbnail</label>
+        <div class="thumbnail-wrapper">
+          <img id="edit-thumbnail-image" class="issue-thumbnail" alt="Issue thumbnail" />
+        </div>
+        <button type="button" id="edit-capture-thumb-btn" class="save-edit-btn">
+          Load ACC Thumbnail
+        </button>
+        <button type="button" id="edit-open-markup-btn" class="save-edit-btn" style="margin-top: 8px;">
+          Open Markup Mode
+        </button>
+      </div>
       
       <div class="form-group">
         <label for="edit-title">Title</label>
@@ -887,6 +900,14 @@
   </div>
 </div>
   <!----------------------------- EDIT FORM DETAILS ----------------------------->
+
+  <div id="markup-mode-banner" class="markup-mode-banner hidden">
+    <span>Markup mode is active. You can add markups and save them to this issue.</span>
+    <div class="markup-mode-actions">
+      <button type="button" id="markup-cancel-btn" class="cancel-btn">Cancel</button>
+      <button type="button" id="markup-save-btn" class="save-edit-btn">Save Markup</button>
+    </div>
+  </div>
 
 
   <!-- <div id="preview"></div> -->

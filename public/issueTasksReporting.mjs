@@ -1,6 +1,392 @@
 var viewer = window.viewerInstance;
 const taskTypeMap = {};
 let watchersSelectEdit;
+const ISSUE_MARKUP_STORAGE_KEY = "hemyIssueMarkups";
+const ISSUE_THUMBNAIL_STORAGE_KEY = "hemyIssueThumbnails";
+
+function readIssueMarkups() {
+  try {
+    const raw = localStorage.getItem(ISSUE_MARKUP_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (err) {
+    console.error("Failed to read issue markups:", err);
+    return {};
+  }
+}
+
+function writeIssueMarkups(map) {
+  try {
+    localStorage.setItem(ISSUE_MARKUP_STORAGE_KEY, JSON.stringify(map));
+  } catch (err) {
+    console.error("Failed to save issue markups:", err);
+  }
+}
+
+function readIssueThumbnails() {
+  try {
+    const raw = localStorage.getItem(ISSUE_THUMBNAIL_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (err) {
+    console.error("Failed to read issue thumbnails:", err);
+    return {};
+  }
+}
+
+function writeIssueThumbnails(map) {
+  try {
+    localStorage.setItem(ISSUE_THUMBNAIL_STORAGE_KEY, JSON.stringify(map));
+  } catch (err) {
+    console.error("Failed to save issue thumbnails:", err);
+  }
+}
+
+function saveIssueThumbnail(issueId, dataUrl) {
+  if (!issueId || !dataUrl) return;
+  const map = readIssueThumbnails();
+  map[issueId] = dataUrl;
+  writeIssueThumbnails(map);
+}
+
+function loadIssueThumbnailFromLocal(issueId) {
+  if (!issueId) return null;
+  const map = readIssueThumbnails();
+  const value = map[issueId] || null;
+
+  // Old cached values may be blob: URLs (temporary and invalid after reload).
+  // Auto-clean them up so we don't keep reusing broken thumbnails.
+  if (typeof value === "string" && value.startsWith("blob:")) {
+    delete map[issueId];
+    writeIssueThumbnails(map);
+    return null;
+  }
+
+  return value;
+}
+
+function getCurrentMarkupSvg() {
+  try {
+    if (window.markupsExt && typeof window.markupsExt.generateData === "function") {
+      const data = window.markupsExt.generateData();
+      return data && data.trim().length > 0 ? data : null;
+    }
+  } catch (err) {
+    console.error("Failed to generate markup data:", err);
+  }
+  return null;
+}
+
+function saveIssueMarkup(issueId, markupSvg) {
+  if (!issueId || !markupSvg) return;
+  const map = readIssueMarkups();
+  map[issueId] = markupSvg;
+  writeIssueMarkups(map);
+}
+
+function loadIssueMarkup(issueId, editMode = false) {
+  if (!issueId || !window.markupsExt) return;
+
+  // Avoid repeated reload of same layer/issue; just switch mode.
+  if (window.__loadedMarkupIssueId === issueId) {
+    try {
+      if (editMode) {
+        window.markupsExt.show();
+        window.markupsExt.enterEditMode("markups-svg");
+      } else {
+        window.markupsExt.leaveEditMode();
+      }
+    } catch (err) {
+      console.error("Failed to reuse loaded markup layer:", err);
+    }
+    return;
+  }
+
+  const map = readIssueMarkups();
+  const markupSvg = map[issueId];
+  if (!markupSvg) return;
+
+  const EDIT_LAYER = "markups-svg";
+  try {
+    // Ensure we're not in edit mode before loading markups to avoid MarkupsCore warnings.
+    try {
+      window.markupsExt.leaveEditMode();
+    } catch (_) {}
+
+    if (!window.markupsExt.markups) {
+      window.markupsExt.createMarkupSheet();
+    }
+    window.markupsExt.show();
+    window.markupsExt.loadMarkups(markupSvg, EDIT_LAYER);
+    window.__loadedMarkupIssueId = issueId;
+    if (editMode) {
+      window.markupsExt.enterEditMode(EDIT_LAYER);
+    } else {
+      window.markupsExt.leaveEditMode();
+    }
+  } catch (err) {
+    console.error("Failed to load issue markups:", err);
+  }
+}
+
+function showMarkupBanner(show) {
+  const banner = document.getElementById("markup-mode-banner");
+  if (!banner) return;
+  banner.classList.toggle("hidden", !show);
+}
+
+function setMarkupToolbarVisible(visible) {
+  const toolbarGroup = window.viewerInstance?.toolbar?.getControl("markupsTools");
+  if (toolbarGroup?.container) {
+    toolbarGroup.container.style.display = visible ? "flex" : "none";
+  }
+}
+
+async function captureViewerDataUrl() {
+  const viewer = window.viewerInstance;
+  if (!viewer) return null;
+  const screenshotUrl = await new Promise((resolve) => {
+    viewer.getScreenShot(600, 400, (url) => resolve(url || null));
+  });
+
+  if (!screenshotUrl) return null;
+
+  // Viewer may return either a data URL or a temporary blob URL.
+  if (screenshotUrl.startsWith("data:")) {
+    return screenshotUrl;
+  }
+
+  if (screenshotUrl.startsWith("blob:")) {
+    try {
+      const response = await fetch(screenshotUrl);
+      const blob = await response.blob();
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (err) {
+      console.error("Failed to convert blob screenshot to data URL:", err);
+      return null;
+    }
+  }
+
+  return null;
+}
+
+async function composeMarkupIntoScreenshot(baseImageDataUrl, markupSvg) {
+  if (!baseImageDataUrl || !markupSvg) return baseImageDataUrl;
+
+  function ensureSvgNamespace(svgText) {
+    const trimmed = svgText.trim();
+    if (trimmed.includes("xmlns=")) return trimmed;
+    return trimmed.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"');
+  }
+
+  const safeSvg = ensureSvgNamespace(markupSvg);
+
+  const baseImage = await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = baseImageDataUrl;
+  });
+
+  const svgBlob = new Blob([safeSvg], { type: "image/svg+xml;charset=utf-8" });
+  const svgUrl = URL.createObjectURL(svgBlob);
+
+  try {
+    const overlayImage = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = svgUrl;
+    });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = baseImage.width;
+    canvas.height = baseImage.height;
+    const ctx = canvas.getContext("2d");
+
+    ctx.drawImage(baseImage, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(overlayImage, 0, 0, canvas.width, canvas.height);
+
+    return canvas.toDataURL("image/png");
+  } catch (err) {
+    console.error("Failed to overlay markup on screenshot:", err);
+    return baseImageDataUrl;
+  } finally {
+    URL.revokeObjectURL(svgUrl);
+  }
+}
+
+async function enterMarkupModeForIssue(issueId) {
+  if (!issueId || !window.markupsExt) return;
+  try {
+    if (!window.markupsExt.markups) {
+      window.markupsExt.createMarkupSheet();
+    }
+    loadIssueMarkup(issueId, true);
+    window.markupsExt.enterEditMode("markups-svg");
+    setMarkupToolbarVisible(true);
+    showMarkupBanner(true);
+  } catch (err) {
+    console.error("Failed to enter markup mode:", err);
+  }
+}
+
+function exitMarkupMode() {
+  if (!window.markupsExt) return;
+  try {
+    window.markupsExt.leaveEditMode();
+    window.markupsExt.hide();
+  } catch (err) {
+    console.error("Failed to exit markup mode:", err);
+  }
+  setMarkupToolbarVisible(false);
+  showMarkupBanner(false);
+}
+
+function focusOnIssuePin(linkedDoc) {
+  const viewer = window.viewerInstance;
+  if (!viewer || !linkedDoc) return;
+
+  const now = Date.now();
+  if (window.__lastFocusPinAt && now - window.__lastFocusPinAt < 350) {
+    return; // avoid duplicate rapid calls (click + dblclick)
+  }
+  window.__lastFocusPinAt = now;
+
+  const normalizeViewerState = (state) => {
+    if (!state) return null;
+    if (typeof state === "string") {
+      try {
+        return JSON.parse(state);
+      } catch (err) {
+        console.error("Invalid viewerState JSON string:", err);
+        return null;
+      }
+    }
+    return state;
+  };
+
+  const focusByPosition = () => {
+    const p = linkedDoc?.position;
+    if (!p || typeof p.x !== "number" || typeof p.y !== "number" || typeof p.z !== "number") return;
+    try {
+      const target = new THREE.Vector3(p.x, p.y, p.z);
+      const eye = target.clone().add(new THREE.Vector3(15, 15, 15));
+      viewer.navigation.setView(eye, target);
+      viewer.navigation.setPivotPoint(target, true, true);
+    } catch (err) {
+      console.error("Failed camera focus by pin position:", err);
+    }
+  };
+
+  const viewerState = normalizeViewerState(linkedDoc.viewerState);
+
+  const selectWhenReady = (oid) => {
+    if (!Number.isFinite(oid) || oid <= 0) return;
+
+    const trySelect = () => {
+      try {
+        // Guard against transient state where model/selector is not initialized yet.
+        const hasModel = !!viewer.model;
+        const hasSelector = !!viewer?.impl?.selector;
+        if (!hasModel || !hasSelector) return false;
+
+        viewer.select([oid]);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    };
+
+    if (trySelect()) return;
+
+    const onGeomLoaded = () => {
+      viewer.removeEventListener(Autodesk.Viewing.GEOMETRY_LOADED_EVENT, onGeomLoaded);
+      // Retry once geometry finishes loading.
+      setTimeout(() => {
+        if (!trySelect()) {
+          console.warn("Could not select pinned object after geometry load.");
+        }
+      }, 100);
+    };
+    viewer.addEventListener(Autodesk.Viewing.GEOMETRY_LOADED_EVENT, onGeomLoaded);
+  };
+
+  const focusCurrentView = () => {
+    // 1) Prefer exact ACC viewer state (closest to pushpin view in ACC UI).
+    if (viewerState) {
+      try {
+        viewer.restoreState(viewerState);
+      } catch (err) {
+        console.error("Failed restoring pin viewerState:", err);
+      }
+    }
+
+    // 2) Select pinned object when available, but do not override camera.
+    const oid = Number(linkedDoc.objectId);
+    if (Number.isFinite(oid) && oid > 0) {
+      setTimeout(() => {
+        try {
+          selectWhenReady(oid);
+          if (!viewerState) {
+            viewer.fitToView([oid]);
+          }
+        } catch (err) {
+          console.error("Failed to focus/select pinned object:", err);
+          if (!viewerState) {
+            focusByPosition();
+          }
+        }
+      }, 250);
+    } else if (!viewerState) {
+      // Fallback for pins with no object id and no viewer state.
+      setTimeout(focusByPosition, 250);
+    }
+  };
+
+  try {
+    const targetGuid = linkedDoc?.viewable?.guid;
+    const currentGuid = viewer.model?.getDocumentNode?.()?.data?.guid;
+    const shouldLoadAnotherViewable = !!targetGuid && !!window.modelUrn && targetGuid !== currentGuid;
+
+    // Only load document node when target viewable differs from current one.
+    if (shouldLoadAnotherViewable) {
+      Autodesk.Viewing.Document.load(
+        "urn:" + btoa(window.modelUrn),
+        async (doc) => {
+          try {
+            const geometryItems = doc.getRoot().search({ type: "geometry" });
+            const targetNode = geometryItems.find((node) => node?.data?.guid === targetGuid);
+            if (!targetNode) {
+              focusCurrentView();
+              return;
+            }
+
+            viewer.getVisibleModels().forEach((m) => viewer.unloadModel(m));
+            await viewer.loadDocumentNode(doc, targetNode, {
+              globalOffset: { x: 0, y: 0, z: 0 },
+              applyRefPoint: true,
+            });
+
+            setTimeout(focusCurrentView, 300);
+          } catch (err) {
+            console.error("Failed loading target viewable for pin:", err);
+            focusCurrentView();
+          }
+        },
+        () => focusCurrentView()
+      );
+      return;
+    }
+
+    focusCurrentView();
+  } catch (err) {
+    console.error("Failed to focus on issue pin:", err);
+  }
+}
 
 document.getElementById("issues-tasks-sidebar").addEventListener("click", createIssueTaskPanel);
 document.getElementById("issue-maximize-btn").addEventListener("click", createIssuePanel);
@@ -376,6 +762,7 @@ async function pushpinTask(e) {
         }
 
         const data = await issueRes.json();
+        saveIssueMarkup(data?.details?.id, getCurrentMarkupSvg());
         showNotification("Task created successfully");
         document.getElementById("task-details-panel").style.visibility = "hidden";
         document.getElementById("save-task-btn").attributes.disabled = "false";
@@ -738,6 +1125,7 @@ async function pushpinIssue(e){
         }
 
         const data = await issueRes.json();
+        saveIssueMarkup(data?.details?.id, getCurrentMarkupSvg());
         showNotification("Issue created successfully");
         document.getElementById("issue-details-panel").style.visibility =
           "hidden";
@@ -1127,7 +1515,6 @@ document.getElementById("edit-form").onsubmit = async (e) => {
   const assignedToType = assignSelect.selectedOptions[0]?.getAttribute("data-type");
   const startDateRaw = document.getElementById("edit-start-date").value;
   const dueDateRaw = document.getElementById("edit-due-date").value;
-
   const startDate = startDateRaw ? new Date(startDateRaw).toISOString().split("T")[0] : null;
   const dueDate = dueDateRaw ? new Date(dueDateRaw).toISOString().split("T")[0] : null;
 
@@ -1150,7 +1537,7 @@ document.getElementById("edit-form").onsubmit = async (e) => {
         attributeDefinitionId: getAttrIdByTitle("Functional Location"),
         value: document.getElementById("edit-functional-location").value,
       },
-    ]
+    ],
   };
 
   const issueId = document.getElementById("edit-panel-title").getAttribute("issue-id");
@@ -1171,6 +1558,7 @@ document.getElementById("edit-form").onsubmit = async (e) => {
     }
 
     const data = await issueRes.json();
+    saveIssueMarkup(data?.details?.id || issueId, getCurrentMarkupSvg());
     showNotification("Issue updated successfully");
     document.getElementById("issue-details-panel").style.visibility = "hidden";
     document.getElementById("save-edit-btn").attributes.disabled = "false";
@@ -1693,7 +2081,9 @@ async function populateIssueList(issues) {
       </div>
     `;
     container.appendChild(card);
+    card.addEventListener("click", () => focusOnIssuePin(linkedDoc));
     card.addEventListener("dblclick", (e) => {
+      focusOnIssuePin(linkedDoc);
       editIssueTask(issue.id, 
                     issue.title, 
                     issue.description, 
@@ -1705,7 +2095,8 @@ async function populateIssueList(issues) {
                    // issue.watchers,
                     issueTask,
                     hardAssetName,
-                    functionalLocation
+                    functionalLocation,
+                    linkedDoc
                   );
     });
 
@@ -1717,7 +2108,9 @@ async function populateIssueList(issues) {
       <span class="issue-small-title">${issue.title || "-"}</span> 
       `;
     smallContainer.appendChild(smallCard);
+    smallCard.addEventListener("click", () => focusOnIssuePin(linkedDoc));
     smallCard.addEventListener("dblclick", (e) => {
+      focusOnIssuePin(linkedDoc);
       editIssueTask(issue.id, 
                     issue.title, 
                     issue.description, 
@@ -1729,7 +2122,8 @@ async function populateIssueList(issues) {
                   //  issue.watchers,
                     issueTask,
                     hardAssetName,
-                    functionalLocation
+                    functionalLocation,
+                    linkedDoc
                   );
     });
 
@@ -1748,9 +2142,7 @@ async function populateIssueList(issues) {
 
       // 🔍 Restore viewer state on card click
       card.addEventListener("click", () => {
-        if (linkedDoc.viewerState) {
-          viewer.restoreState(linkedDoc.viewerState);
-        }
+        focusOnIssuePin(linkedDoc);
 
         // 🔄 Remove 'selected' from all cards
         document
@@ -1764,9 +2156,7 @@ async function populateIssueList(issues) {
       });
 
       smallCard.addEventListener("click", () => {
-        if (linkedDoc.viewerState) {
-          viewer.restoreState(linkedDoc.viewerState);
-        }
+        focusOnIssuePin(linkedDoc);
 
         // 🔄 Remove 'selected' from all cards
         document
@@ -1790,8 +2180,10 @@ async function populateIssueList(issues) {
       issues.forEach((issue) => {
         const el = document.getElementById(issue.id);
         if (el) {
-          el.style.backgroundColor = "#F54927"; // your custom red-orange
-          el.style.borderColor = "#702010ff"; // your custom red-orange
+          el.style.backgroundColor = "#ff2b2b"; // high-contrast red for issues
+          el.style.borderColor = "#ffffff";
+          el.style.boxShadow = "0 0 0 2px #000000, 0 0 10px #ff2b2b";
+          el.style.transform = "scale(1.15)";
         }
       });
     }, 200); // delay ensures elements are in DOM
@@ -1849,7 +2241,9 @@ async function populateIssueListFiltered(issues) {
     `;
 
     container.appendChild(card);
+    card.addEventListener("click", () => focusOnIssuePin(linkedDoc));
     card.addEventListener("dblclick", (e) => {
+      focusOnIssuePin(linkedDoc);
       editIssueTask(issue.id, 
                     issue.title, 
                     issue.description, 
@@ -1861,7 +2255,8 @@ async function populateIssueListFiltered(issues) {
                    //  issue.watchers,
                     issueTask,
                     hardAssetName,
-                    functionalLocation
+                    functionalLocation,
+                    linkedDoc
                   );
     });
 
@@ -1881,9 +2276,7 @@ async function populateIssueListFiltered(issues) {
 
       // 🔍 Restore viewer state on card click
       card.addEventListener("click", () => {
-        if (linkedDoc.viewerState) {
-          viewer.restoreState(linkedDoc.viewerState);
-        }
+        focusOnIssuePin(linkedDoc);
 
         // 🔄 Remove 'selected' from all cards
         document
@@ -1907,8 +2300,10 @@ async function populateIssueListFiltered(issues) {
       issues.forEach((issue) => {
         const el = document.getElementById(issue.id);
         if (el) {
-          el.style.backgroundColor = "#F54927"; // your custom red-orange
-          el.style.borderColor = "#702010ff"; // your custom red-orange
+          el.style.backgroundColor = "#ff2b2b"; // high-contrast red for issues
+          el.style.borderColor = "#ffffff";
+          el.style.boxShadow = "0 0 0 2px #000000, 0 0 10px #ff2b2b";
+          el.style.transform = "scale(1.15)";
         }
       });
     }, 200); // delay ensures elements are in DOM
@@ -1966,7 +2361,9 @@ async function populateTaskList(tasks) {
       </div>
     `;
     container.appendChild(card);
+    card.addEventListener("click", () => focusOnIssuePin(linkedDoc));
     card.addEventListener("dblclick", (e) => {
+      focusOnIssuePin(linkedDoc);
       editIssueTask(task.id, 
                     task.title, 
                     task.description, 
@@ -1978,7 +2375,8 @@ async function populateTaskList(tasks) {
                   //  task.watchers,
                     issueTask,
                     hardAssetName,
-                    functionalLocation
+                    functionalLocation,
+                    linkedDoc
                   );
     });
 
@@ -1991,7 +2389,9 @@ async function populateTaskList(tasks) {
       <span class="task-small-title">${task.title || "-"}</span> 
       `;
     smallContainer.appendChild(smallCard);
+    smallCard.addEventListener("click", () => focusOnIssuePin(linkedDoc));
     smallCard.addEventListener("dblclick", (e) => {
+      focusOnIssuePin(linkedDoc);
       editIssueTask(task.id, 
                     task.title, 
                     task.description, 
@@ -2003,7 +2403,8 @@ async function populateTaskList(tasks) {
                  //   task.watchers,
                     issueTask,
                     hardAssetName,
-                    functionalLocation
+                    functionalLocation,
+                    linkedDoc
                   );
     });
 
@@ -2023,9 +2424,7 @@ async function populateTaskList(tasks) {
 
       // 🔍 Restore viewer state on card click
       card.addEventListener("click", () => {
-        if (linkedDoc.viewerState) {
-          viewer.restoreState(linkedDoc.viewerState);
-        }
+        focusOnIssuePin(linkedDoc);
 
         // 🔄 Remove 'selected' from all cards
         document
@@ -2039,9 +2438,7 @@ async function populateTaskList(tasks) {
       });
 
       smallCard.addEventListener("click", () => {
-        if (linkedDoc.viewerState) {
-          viewer.restoreState(linkedDoc.viewerState);
-        }
+        focusOnIssuePin(linkedDoc);
 
         // 🔄 Remove 'selected' from all cards
         document
@@ -2065,8 +2462,10 @@ async function populateTaskList(tasks) {
       tasks.forEach((task) => {
         const el = document.getElementById(task.id);
         if (el) {
-          el.style.backgroundColor = "#21f900ff"; // green
-          el.style.borderColor = "#09420063"; // green
+          el.style.backgroundColor = "#00e5ff"; // high-contrast cyan for tasks
+          el.style.borderColor = "#ffffff";
+          el.style.boxShadow = "0 0 0 2px #000000, 0 0 10px #00e5ff";
+          el.style.transform = "scale(1.15)";
         }
       });
     }, 200); // delay ensures elements are in DOM
@@ -2123,7 +2522,9 @@ async function populateTaskListFiltered(tasks) {
       </div>
     `;
     container.appendChild(card);
+    card.addEventListener("click", () => focusOnIssuePin(linkedDoc));
     card.addEventListener("dblclick", (e) => {
+      focusOnIssuePin(linkedDoc);
       editIssueTask(task.id, 
                     task.title, 
                     task.description, 
@@ -2135,7 +2536,8 @@ async function populateTaskListFiltered(tasks) {
                  //   task.watchers,
                     issueTask,
                     hardAssetName,
-                    functionalLocation
+                    functionalLocation,
+                    linkedDoc
                   );
     });
 
@@ -2154,9 +2556,7 @@ async function populateTaskListFiltered(tasks) {
 
       // 🔍 Restore viewer state on card click
       card.addEventListener("click", () => {
-        if (linkedDoc.viewerState) {
-          viewer.restoreState(linkedDoc.viewerState);
-        }
+        focusOnIssuePin(linkedDoc);
 
         // 🔄 Remove 'selected' from all cards
         document
@@ -2180,8 +2580,10 @@ async function populateTaskListFiltered(tasks) {
       tasks.forEach((task) => {
         const el = document.getElementById(task.id);
         if (el) {
-          el.style.backgroundColor = "#21f900ff"; // green color
-          el.style.borderColor = "#09420063"; // green color
+          el.style.backgroundColor = "#00e5ff"; // high-contrast cyan for tasks
+          el.style.borderColor = "#ffffff";
+          el.style.boxShadow = "0 0 0 2px #000000, 0 0 10px #00e5ff";
+          el.style.transform = "scale(1.15)";
         }
       });
     }, 200); // delay ensures elements are in DOM
@@ -2510,6 +2912,108 @@ async function getCompanies(projectId, authToken) {
 // #endregion
 
 
+async function loadEditIssueThumbnail(issueId) {
+  const img = document.getElementById("edit-thumbnail-image");
+  if (!img || !issueId) return;
+
+  // Clear immediately so stale thumbnails don't linger
+  img.removeAttribute("src");
+
+  const authToken = localStorage.getItem("authTokenHemyProject");
+  const params = new URLSearchParams(window.location.search);
+  const projectId = params.get("id");
+
+  try {
+    const resp = await fetch("/api/acc/getIssueThumbnail", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ projectId, issueId }),
+    });
+
+    if (!resp.ok) {
+      console.error("Thumbnail fetch failed:", await resp.text());
+      return;
+    }
+
+    const data = await resp.json();
+    if (data?.thumbnailUrl) {
+      // Do not append query params to signed S3 URLs; it invalidates signatures.
+      img.src = data.thumbnailUrl;
+    }
+  } catch (err) {
+    console.error("Thumbnail load error:", err);
+  }
+}
+
+const editThumbBtn = document.getElementById("edit-capture-thumb-btn");
+if (editThumbBtn) {
+  editThumbBtn.addEventListener("click", () => {
+    const currentId = window.__currentEditIssueId;
+    loadEditIssueThumbnail(currentId);
+  });
+}
+
+const openMarkupBtn = document.getElementById("edit-open-markup-btn");
+if (openMarkupBtn) {
+  openMarkupBtn.addEventListener("click", () => {
+    enterMarkupModeForIssue(window.__currentEditIssueId);
+  });
+}
+
+const markupCancelBtn = document.getElementById("markup-cancel-btn");
+if (markupCancelBtn) {
+  markupCancelBtn.addEventListener("click", () => {
+    exitMarkupMode();
+  });
+}
+
+const markupSaveBtn = document.getElementById("markup-save-btn");
+if (markupSaveBtn) {
+  markupSaveBtn.addEventListener("click", async () => {
+    const issueId = window.__currentEditIssueId;
+    // Finalize current text/shape edit so generateData captures latest changes.
+    try {
+      window.markupsExt?.leaveEditMode();
+    } catch (_) {}
+
+    const markupSvg = getCurrentMarkupSvg();
+    if (issueId && markupSvg) {
+      saveIssueMarkup(issueId, markupSvg);
+    }
+
+    const baseScreenshot = await captureViewerDataUrl();
+    const dataUrl = await composeMarkupIntoScreenshot(baseScreenshot, markupSvg);
+    if (dataUrl) {
+      // Best-effort sync to ACC: store screenshot as issue attachment.
+      try {
+        const authToken = localStorage.getItem("authTokenHemyProject");
+        const params = new URLSearchParams(window.location.search);
+        const projectId = params.get("id");
+        const syncResp = await fetch("/api/acc/syncMarkupAttachment", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({ projectId, issueId, dataUrl }),
+        });
+        if (!syncResp.ok) {
+          console.error("ACC attachment sync failed:", await syncResp.text());
+        }
+      } catch (err) {
+        console.error("ACC attachment sync error:", err);
+      }
+    } else {
+      console.warn("No persistent screenshot captured for thumbnail.");
+    }
+
+    exitMarkupMode();
+  });
+}
+
 // ! Edit Issue/Task
 // #region Edit Issue/Task
 // ------------------------------------------ EDIT FORM ------------------------------------------------
@@ -2524,7 +3028,8 @@ window.editIssueTask = async function (
   dueDate,
   issueTask,
   hardAssetName,
-  functionalLocation
+  functionalLocation,
+  pinDetails
 ) {
   const viewer = window.viewerInstance;
   const modelBrowserPanel = document.getElementById("model-browser-panel");
@@ -2541,6 +3046,11 @@ window.editIssueTask = async function (
   setTimeout(() => {
     viewer.resize();
   }, 300);
+
+  // Force viewer to the issue/task pushpin view while opening Edit.
+  if (pinDetails) {
+    focusOnIssuePin(pinDetails);
+  }
 
   // Clear previous form values
   document.getElementById("edit-panel-title").value = "";
@@ -2571,6 +3081,13 @@ window.editIssueTask = async function (
   document.getElementById("edit-start-date").value = startDate || "";
   document.getElementById("edit-due-date").value = dueDate || "";
   document.getElementById("edit-placement").value = window.modelName || "";
+
+  // Load the ACC-native issue thumbnail for this issue.
+  window.__currentEditIssueId = id;
+  loadEditIssueThumbnail(id);
+  exitMarkupMode();
+  setMarkupToolbarVisible(false);
+  showMarkupBanner(false);
 }
 // #endregion
 

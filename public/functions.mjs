@@ -93,6 +93,17 @@ export function toolbarButtons2D(viewer) {
 export function sidebarButtons3D(viewer) {
   console.log("Geometry loaded, setting up sidebar buttons");
 
+  viewer
+    .loadExtension("Autodesk.Viewing.MarkupsCore")
+    .then(function (markupsExt) {
+      window.markupsExt = markupsExt;
+      window.viewerInstance.loadExtension("PencilButton");
+      window.viewerInstance.loadExtension("ShapeButton");
+      window.viewerInstance.loadExtension("TextButton");
+      window.viewerInstance.loadExtension("SaveButton");
+    })
+    .catch((err) => console.error("Failed to load MarkupsCore:", err));
+
   viewer.unloadExtension("Autodesk.Explode");
   const modelTools = viewer.toolbar.getControl("modelTools");
   const navTools = viewer.toolbar.getControl("navTools");
