@@ -900,13 +900,15 @@ router.post('/api/acc/getTasks', async (req, res) => {
   const authHeader = req.headers.authorization;
   const authToken = authHeader?.split(' ')[1];
 
-  if (!projectId || !lineageUrn || !authToken) {
-    return res.status(400).json({ error: "Missing projectId, lineageUrn, or Authorization token" });
+  if (!projectId || !authToken) {
+    return res.status(400).json({ error: "Missing projectId or Authorization token" });
   }
 
   try {
+    const issueTaskFilter = issueTaskId ? `filter[customAttributes][${issueTaskId}]=Task` : "";
+    const queryParts = [issueTaskFilter].filter(Boolean).join("&");
     const issueListRes = await fetch(
-      `https://developer.api.autodesk.com/construction/issues/v1/projects/${projectId}/issues?filter[linkedDocumentUrn]=${encodeURIComponent(lineageUrn)}&filter[customAttributes][${issueTaskId}]=Task`,
+      `https://developer.api.autodesk.com/construction/issues/v1/projects/${projectId}/issues${queryParts ? `?${queryParts}` : ""}`,
       {
         method: "GET",
         headers: {
@@ -964,7 +966,6 @@ router.post('/api/acc/gettasksFiltered', async (req, res) => {
   try {
     const queryParams = new URLSearchParams();
 
-    if (lineageUrn) queryParams.append("filter[linkedDocumentUrn]", lineageUrn);
     if (issueType) queryParams.append("filter[issueSubtypeId]", issueType);
     if (hardAsset && hardAssetId)
       queryParams.append(`filter[customAttributes][${hardAssetId}]`, hardAsset);
@@ -977,7 +978,10 @@ router.post('/api/acc/gettasksFiltered', async (req, res) => {
     // if (startDate) queryParams.append("filter[startDate]", startDate);
     // if (dueDate) queryParams.append("filter[dueDate]", dueDate);
 
-    const url = `https://developer.api.autodesk.com/construction/issues/v1/projects/${projectId}/issues?filter[customAttributes][${issueTaskId}]=Task&${queryParams.toString()}`;
+    const issueTaskFilter = issueTaskId ? `filter[customAttributes][${issueTaskId}]=Task` : "";
+    const qp = queryParams.toString();
+    const query = [issueTaskFilter, qp].filter(Boolean).join("&");
+    const url = `https://developer.api.autodesk.com/construction/issues/v1/projects/${projectId}/issues${query ? `?${query}` : ""}`;
 
     const issueListRes = await fetch(url, {
       method: "GET",
@@ -1015,13 +1019,15 @@ router.post('/api/acc/getissues', async (req, res) => {
   const authHeader = req.headers.authorization;
   const authToken = authHeader?.split(' ')[1];
 
-  if (!projectId || !lineageUrn || !authToken) {
-    return res.status(400).json({ error: "Missing projectId, lineageUrn, or Authorization token" });
+  if (!projectId || !authToken) {
+    return res.status(400).json({ error: "Missing projectId or Authorization token" });
   }
 
   try {
+    const issueTaskFilter = issueTaskId ? `filter[customAttributes][${issueTaskId}]=Issue` : "";
+    const queryParts = [issueTaskFilter].filter(Boolean).join("&");
     const issueListRes = await fetch(
-      `https://developer.api.autodesk.com/construction/issues/v1/projects/${projectId}/issues?filter[linkedDocumentUrn]=${encodeURIComponent(lineageUrn)}&filter[customAttributes][${issueTaskId}]=Issue`,
+      `https://developer.api.autodesk.com/construction/issues/v1/projects/${projectId}/issues${queryParts ? `?${queryParts}` : ""}`,
       {
         method: "GET",
         headers: {
@@ -1083,7 +1089,6 @@ router.post('/api/acc/getissuesFiltered', async (req, res) => {
   try {
     const queryParams = new URLSearchParams();
 
-    if (lineageUrn) queryParams.append("filter[linkedDocumentUrn]", lineageUrn);
     if (issueType) queryParams.append("filter[issueSubtypeId]", issueType);
     if (hardAsset && hardAssetId)
       queryParams.append(`filter[customAttributes][${hardAssetId}]`, hardAsset);
@@ -1096,7 +1101,10 @@ router.post('/api/acc/getissuesFiltered', async (req, res) => {
     // if (startDate) queryParams.append("filter[startDate]", startDate);
     // if (dueDate) queryParams.append("filter[dueDate]", dueDate);
 
-    const url = `https://developer.api.autodesk.com/construction/issues/v1/projects/${projectId}/issues?filter[customAttributes][${issueTaskId}]=Issue&${queryParams.toString()}`;
+    const issueTaskFilter = issueTaskId ? `filter[customAttributes][${issueTaskId}]=Issue` : "";
+    const qp = queryParams.toString();
+    const query = [issueTaskFilter, qp].filter(Boolean).join("&");
+    const url = `https://developer.api.autodesk.com/construction/issues/v1/projects/${projectId}/issues${query ? `?${query}` : ""}`;
 
     const issueListRes = await fetch(url, {
       method: "GET",

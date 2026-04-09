@@ -1756,15 +1756,20 @@ async function createIssueTaskPanel() {
   const params = new URLSearchParams(window.location.search);
   const projectId = params.get("id");
   const lineageUrn = window.lineageUrn;
-  const issueTaskId = getAttrIdByTitle("Issue/Task"); // make sure this exists in prod
+  let issueTaskId = getAttrIdByTitle("Issue/Task"); // make sure this exists in prod
+
+  // If custom attributes were not loaded yet, load once and retry.
+  if (!issueTaskId && projectId && authToken) {
+    await getCustomAttributes(projectId, authToken);
+    issueTaskId = getAttrIdByTitle("Issue/Task");
+  }
 
   // -------------------------
   // Validate parameters
   // -------------------------
-  if (!projectId || !lineageUrn || !issueTaskId) {
+  if (!projectId || !issueTaskId) {
     console.error("Cannot fetch issues/tasks. Missing fields:", { projectId, lineageUrn, issueTaskId });
-    showNotification("Cannot fetch issues/tasks: required data missing");
-    alert("Cannot fetch issues/tasks: missing required data. Check console for details.");
+    showErrorNotification("Cannot load issues/tasks. Missing custom attribute mapping for Issue/Task.");
     return;
   }
 
