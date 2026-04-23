@@ -82,6 +82,97 @@ function saveIssueMarkup(issueId, markupSvg) {
   writeIssueMarkups(map);
 }
 
+function extractTextFromMarkupSvg(markupSvg) {
+  if (!markupSvg || typeof markupSvg !== "string") return "";
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(markupSvg, "image/svg+xml");
+    const textNodes = Array.from(doc.querySelectorAll("text"));
+    const raw = textNodes
+      .map((n) => (n.textContent || "").trim())
+      .filter(Boolean);
+    return [...new Set(raw)].join("\n");
+  } catch (err) {
+    console.error("Failed to extract text from markup SVG:", err);
+    return "";
+  }
+}
+
+function getIssueMarkupText(issueId) {
+  if (!issueId) return "";
+  const map = readIssueMarkups();
+  const markupSvg = map[issueId];
+  return extractTextFromMarkupSvg(markupSvg);
+}
+
+function updateEditThumbnailText(issueId) {
+  const field = document.getElementById("edit-thumbnail-text-field");
+  if (!field) return;
+  const currentId = window.__currentEditIssueId;
+  if (currentId && issueId && String(currentId) !== String(issueId)) return;
+
+  const text = getIssueMarkupText(issueId);
+  if (String(text || "").trim()) {
+    field.value = text;
+  }
+}
+
+function getThumbnailTextValueForIssue(issueId) {
+  const field = document.getElementById("edit-thumbnail-text-field");
+  const currentId = window.__currentEditIssueId;
+  if (field && currentId && issueId && String(currentId) === String(issueId)) {
+    const v = String(field.value || "").trim();
+    if (v) return v;
+  }
+  return getIssueMarkupText(issueId);
+}
+
+async function syncThumbnailTextToAcc(issueId) {
+  if (!issueId) return;
+  const authToken = localStorage.getItem("authTokenHemyProject");
+  const params = new URLSearchParams(window.location.search);
+  const projectId = params.get("id");
+  if (!authToken || !projectId) return;
+
+  let attrId = getAttrIdByTitle("Thumbnail Text");
+  if (!attrId) {
+    try {
+      await getCustomAttributes(projectId, authToken);
+    } catch (_) {}
+    attrId = getAttrIdByTitle("Thumbnail Text");
+  }
+  if (!attrId) {
+    console.warn("Thumbnail Text attributeDefinitionId not found; cannot sync.");
+    return;
+  }
+
+  const text = getThumbnailTextValueForIssue(issueId);
+  const payload = {
+    customAttributes: [
+      {
+        attributeDefinitionId: attrId,
+        value: text,
+      },
+    ],
+  };
+
+  try {
+    const resp = await fetch("/api/acc/updateIssueTask", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ projectId, payload, issueId }),
+    });
+    if (!resp.ok) {
+      console.error("Failed to sync Thumbnail Text:", await resp.text());
+    }
+  } catch (err) {
+    console.error("Thumbnail Text sync error:", err);
+  }
+}
+
 function loadIssueMarkup(issueId, editMode = false) {
   if (!issueId || !window.markupsExt) return;
 
@@ -1521,7 +1612,7 @@ document.getElementById("edit-form").onsubmit = async (e) => {
   const payload = {
     title: document.getElementById("edit-title").value,
     status: document.getElementById("edit-status").value,
-    description: document.getElementById("issue-description").value,
+    description: document.getElementById("edit-description").value,
     issueSubtypeId: subtypeId,
     assignedTo: assignedTo,
     assignedToType: assignedToType,
@@ -1537,7 +1628,13 @@ document.getElementById("edit-form").onsubmit = async (e) => {
         attributeDefinitionId: getAttrIdByTitle("Functional Location"),
         value: document.getElementById("edit-functional-location").value,
       },
-    ],
+      {
+        attributeDefinitionId: getAttrIdByTitle("Thumbnail Text"),
+        value: getThumbnailTextValueForIssue(
+          document.getElementById("edit-panel-title").getAttribute("issue-id")
+        ),
+      },
+    ].filter((attr) => attr && attr.attributeDefinitionId),
   };
 
   const issueId = document.getElementById("edit-panel-title").getAttribute("issue-id");
@@ -1554,11 +1651,13 @@ document.getElementById("edit-form").onsubmit = async (e) => {
     if (!issueRes.ok) {
       const responseText = await issueRes.text();
       document.getElementById("save-edit-btn").attributes.disabled = "false";
-      showErrorNotification(`Error creating issue: ${responseText}`);
+      showErrorNotification(`Error updating issue: ${responseText}`);
+      return;
     }
 
     const data = await issueRes.json();
     saveIssueMarkup(data?.details?.id || issueId, getCurrentMarkupSvg());
+    await syncThumbnailTextToAcc(data?.details?.id || issueId);
     showNotification("Issue updated successfully");
     document.getElementById("issue-details-panel").style.visibility = "hidden";
     document.getElementById("save-edit-btn").attributes.disabled = "false";
@@ -1579,7 +1678,7 @@ document.getElementById("edit-form").onsubmit = async (e) => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          hemyprojectId: hemyprojectId.toLowerCase(),
+          hemyprojectId: (hemyprojectId || "").toLowerCase(),
           issueId: data.details.id,
           title: title,
           types: selectedTypeText,
@@ -2068,6 +2167,7 @@ async function populateIssueList(issues) {
     const issueTask = issue.customAttributes?.find(attr => attr.title === "Issue/Task")?.value || "";
     const hardAssetName = issue.customAttributes?.find(attr => attr.title === "Hard Asset Name")?.value || "";
     const functionalLocation = issue.customAttributes?.find(attr => attr.title === "Functional Location")?.value || "";
+    const thumbnailText = issue.customAttributes?.find(attr => attr.title === "Thumbnail Text")?.value || "";
 
     // 🟢 Render issue card
     const card = document.createElement("div");
@@ -2101,6 +2201,7 @@ async function populateIssueList(issues) {
                     issueTask,
                     hardAssetName,
                     functionalLocation,
+                    thumbnailText,
                     linkedDoc
                   );
     });
@@ -2128,6 +2229,7 @@ async function populateIssueList(issues) {
                     issueTask,
                     hardAssetName,
                     functionalLocation,
+                    thumbnailText,
                     linkedDoc
                   );
     });
@@ -2348,6 +2450,7 @@ async function populateTaskList(tasks) {
     const issueTask = task.customAttributes?.find(attr => attr.title === "Issue/Task")?.value || "";
     const hardAssetName = task.customAttributes?.find(attr => attr.title === "Hard Asset Name")?.value || "";
     const functionalLocation = task.customAttributes?.find(attr => attr.title === "Functional Location")?.value || "";
+    const thumbnailText = task.customAttributes?.find(attr => attr.title === "Thumbnail Text")?.value || "";
 
     // 🟢 Render issue card
     const card = document.createElement("div");
@@ -2381,6 +2484,7 @@ async function populateTaskList(tasks) {
                     issueTask,
                     hardAssetName,
                     functionalLocation,
+                    thumbnailText,
                     linkedDoc
                   );
     });
@@ -2409,6 +2513,7 @@ async function populateTaskList(tasks) {
                     issueTask,
                     hardAssetName,
                     functionalLocation,
+                    thumbnailText,
                     linkedDoc
                   );
     });
@@ -2509,6 +2614,7 @@ async function populateTaskListFiltered(tasks) {
     const issueTask = task.customAttributes?.find(attr => attr.title === "Issue/Task")?.value || "";
     const hardAssetName = task.customAttributes?.find(attr => attr.title === "Hard Asset Name")?.value || "";
     const functionalLocation = task.customAttributes?.find(attr => attr.title === "Functional Location")?.value || "";
+    const thumbnailText = task.customAttributes?.find(attr => attr.title === "Thumbnail Text")?.value || "";
 
     // 🟢 Render issue card
     const card = document.createElement("div");
@@ -2542,6 +2648,7 @@ async function populateTaskListFiltered(tasks) {
                     issueTask,
                     hardAssetName,
                     functionalLocation,
+                    thumbnailText,
                     linkedDoc
                   );
     });
@@ -2778,9 +2885,11 @@ function getAttrIdByTitle(title) {
     return null;
   }
 
-  const match = window.customAttributeDefinitions.find(
-    (attr) => attr.title === title
-  );
+  const target = String(title || "").trim().toLowerCase();
+  const match = window.customAttributeDefinitions.find((attr) => {
+    const candidate = String(attr?.title || "").trim().toLowerCase();
+    return candidate === target;
+  });
   if (!match) {
     console.warn(`Attribute with title "${title}" not found`);
     return null;
@@ -2989,6 +3098,11 @@ if (markupSaveBtn) {
       saveIssueMarkup(issueId, markupSvg);
     }
 
+    if (issueId) {
+      updateEditThumbnailText(issueId);
+      await syncThumbnailTextToAcc(issueId);
+    }
+
     const baseScreenshot = await captureViewerDataUrl();
     const dataUrl = await composeMarkupIntoScreenshot(baseScreenshot, markupSvg);
     if (dataUrl) {
@@ -3034,6 +3148,7 @@ window.editIssueTask = async function (
   issueTask,
   hardAssetName,
   functionalLocation,
+  thumbnailText,
   pinDetails
 ) {
   const viewer = window.viewerInstance;
@@ -3066,6 +3181,8 @@ window.editIssueTask = async function (
   document.getElementById("edit-description").value = "";
   document.getElementById("edit-start-date").value = "";
   document.getElementById("edit-due-date").value = "";
+  const thumbField = document.getElementById("edit-thumbnail-text-field");
+  if (thumbField) thumbField.value = "";
 
   // Populate form fields
   document.getElementById("edit-panel-title").textContent = "Edit - " + title;
@@ -3077,6 +3194,9 @@ window.editIssueTask = async function (
   document.getElementById("edit-functional-location").value = functionalLocation || "";
   document.getElementById("edit-description").value = description || "";
   document.getElementById("edit-assigned-to").value = assignedTo || "";
+  if (thumbField && String(thumbnailText || "").trim()) {
+    thumbField.value = String(thumbnailText);
+  }
   //if (watchersSelectEdit) {
    // watchersSelectEdit.removeActiveItems(); // clear old selection
     //if (Array.isArray(watchers)) {
@@ -3090,6 +3210,7 @@ window.editIssueTask = async function (
   // Load the ACC-native issue thumbnail for this issue.
   window.__currentEditIssueId = id;
   loadEditIssueThumbnail(id);
+  updateEditThumbnailText(id);
   exitMarkupMode();
   setMarkupToolbarVisible(false);
   showMarkupBanner(false);
