@@ -6,6 +6,7 @@ async function getJSON(url) {
 
 
     console.log("Request URL:", url);
+    
     // console.log("Authorization Header:", `Bearer ${token}`);
 
     const resp = await fetch(url, {
@@ -34,10 +35,15 @@ function createTreeNode({
   children = false,
   description = '',
   version = '--',
+  indicators = '--',
+  markups = '--',
+  issues = '--',
   size = '--',
   updatedAt = null,
   updatedBy = '--',
   updatedByInitials,
+  versionAddedBy = '--',
+  reviewStatus = '--',
   lineageUrn
 }) {
   return {
@@ -46,10 +52,15 @@ function createTreeNode({
     children,
     description,
     version,
+    indicators,
+    markups,
+    issues,
     size,
     updatedAt,
     updatedBy,
     updatedByInitials,
+    versionAddedBy,
+    reviewStatus,
     lineageUrn,
     itree: { icon }
   };
@@ -80,44 +91,68 @@ async function getContents(hubId, projectId, folderId = null) {
             item.type === 'folders' && item.attributes.displayName === 'Project Files'
         );
         if (projectFilesFolder) {
-            // console.log('Project Files folder ID:', projectFilesFolder.id);
+            console.log('Project Files folder ID:', projectFilesFolder);
             window.projectFilesFolderId = projectFilesFolder.id;
             result = [createTreeNode({
                 id: `folder|${hubId}|${projectId}|${projectFilesFolder.id}`,
                 text: projectFilesFolder.attributes.displayName,
                 icon: 'icon-my-folder',
                 children: true,
-                size: formatSize(projectFilesFolder.attributes.storageSize || '--'),
-                updatedAt: formatDate(projectFilesFolder.attributes.lastModifiedTime || null),
-                updatedBy: projectFilesFolder.attributes.lastModifiedUserName || '--',
-                updatedByInitials: (projectFilesFolder.attributes.lastModifiedUserName || '--')
+                size: formatSize(
+                  projectFilesFolder.attributes.storageSize ||
+                  projectFilesFolder.attributes.size ||
+                  projectFilesFolder.attributes.extension?.data?.storageSize ||
+                  '--'
+                ),
+                updatedAt: getLastModifiedDate(projectFilesFolder.attributes),
+                updatedBy: getLastModifiedBy(projectFilesFolder.attributes),
+                updatedByInitials: (getLastModifiedBy(projectFilesFolder.attributes) || '--')
                     .split(' ')
                     .map(n => n[0])
                     .join('')
                     .toUpperCase(),
-                description: projectFilesFolder.attributes.description || '',
+                description: projectFilesFolder.attributes.extension?.data?.description || projectFilesFolder.attributes.description || '--',
+                indicators: '--',
+                markups: '--',
+                issues: '--',
+                versionAddedBy: '--',
+                reviewStatus: '--',
                 version: '--'
             })];
         }
     } else {
         const folderNodes = contents
-            .filter(item => item.type === 'folders')
-            .map(folder => createTreeNode({
-                id: `folder|${hubId}|${projectId}|${folder.id}`,
-                text: folder.attributes.displayName,
-                icon: 'icon-my-folder',
-                children: true,
-                size: formatSize(folder.attributes.storageSize || '--'),
-                updatedAt: formatDate(folder.attributes.lastModifiedTime || null),
-                updatedBy: folder.attributes.lastModifiedUserName || '--',
-                updatedByInitials: (folder.attributes.lastModifiedUserName || '--')
-                    .split(' ')
-                    .map(n => n[0])
-                    .join('')
-                    .toUpperCase(),
-                description: folder.attributes.description || '',
-                version: '--'
-            }));
+    .filter(item => item.type === 'folders')
+    .map(folder => {
+        console.log("Folder:", folder);
+
+        return createTreeNode({
+            id: `folder|${hubId}|${projectId}|${folder.id}`,
+            text: folder.attributes.displayName,
+            icon: 'icon-my-folder',
+            children: true,
+            size: formatSize(
+              folder.attributes.storageSize ||
+              folder.attributes.size ||
+              folder.attributes.extension?.data?.storageSize ||
+              '--'
+            ),
+            updatedAt: getLastModifiedDate(folder.attributes),
+            updatedBy: getLastModifiedBy(folder.attributes),
+            updatedByInitials: (getLastModifiedBy(folder.attributes) || '--')
+                .split(' ')
+                .map(n => n[0])
+                .join('')
+                .toUpperCase(),
+            description: folder.attributes.extension?.data?.description || folder.attributes.description || '--',
+            indicators: '--',
+            markups: '--',
+            issues: '--',
+            versionAddedBy: '--',
+            reviewStatus: '--',
+            version: '--'
+        });
+    });
 
         const itemVersionNodes = await Promise.all(
             contents
@@ -132,19 +167,26 @@ async function getContents(hubId, projectId, folderId = null) {
                             text: item.attributes.displayName,
                             icon: 'icon-version',
                             children: false,
-                            description: latest.attributes.description || '',
+                            description: latest.attributes.extension?.data?.description || latest.attributes.description || item.attributes.description || '--',
                             version: latest.attributes.versionNumber || '--',
                             indicators: latest.attributes.customMetadata?.indicators || '--',
                             markups: latest.attributes.customMetadata?.markups || '--',
                             issues: latest.attributes.customMetadata?.issues || '--',
-                            size: formatSize(latest.attributes.storageSize || '--'),
-                            updatedAt: formatDate(latest.attributes.lastModifiedTime || null),
-                            updatedBy: latest.attributes.lastModifiedUserName || '--',
-                            updatedByInitials: (latest.attributes.lastModifiedUserName || '--')
+                            size: formatSize(
+                              latest.attributes.storageSize ||
+                              latest.attributes.size ||
+                              latest.attributes.extension?.data?.storageSize ||
+                              '--'
+                            ),
+                            updatedAt: getLastModifiedDate(latest.attributes),
+                            updatedBy: getLastModifiedBy(latest.attributes),
+                            updatedByInitials: (getLastModifiedBy(latest.attributes) || '--')
                                 .split(' ')
                                 .map(n => n[0])
                                 .join('')
                                 .toUpperCase(),
+                            versionAddedBy: latest.attributes.customMetadata?.versionAddedBy || '--',
+                            reviewStatus: latest.attributes.customMetadata?.reviewStatus || '--',
                             lineageUrn: latest.relationships.item.data.id
                         });
                     }
@@ -178,6 +220,30 @@ function formatDate(dateString) {
     const date = new Date(dateString);
     // Force just YYYY-MM-DD without time
     return date.toISOString().split('T')[0];
+}
+
+function getLastModifiedDate(attributes) {
+    return formatDate(
+        attributes.lastModifiedTimeRollup ||
+        attributes.lastModifiedTime ||
+        attributes.modifiedTime ||
+        attributes.publishedTime ||
+        attributes.createdTime ||
+        null
+    );
+}
+
+function getLastModifiedBy(attributes) {
+    return (
+        attributes.lastModifiedUserName ||
+        attributes.lastModifiedUser?.displayName ||
+        attributes.modifiedUserName ||
+        attributes.modifiedUser?.displayName ||
+        attributes.createdBy ||
+        attributes.createdUserName ||
+        attributes.creator?.displayName ||
+        '--'
+    );
 }
 
 
@@ -296,10 +362,15 @@ function appendNodeRow(tbody, node, hubId, projectId, onSelectionChanged, level 
                  : '<i class="fa fa-file"></i>'} ${node.text} <span class="folder-spinner hidden"><i class="fa fa-spinner fa-spin"></i></span>
     </td>
     <td>${node.description || '--'}</td>
-    <td data-label="Version"><span class="version-badge">${'V' + node.version || '--'}</td>
+    <td>${node.version ? 'V' + node.version : '--'}</td>
+    <td>${node.indicators || '--'}</td>
+    <td>${node.markups || '--'}</td>
+    <td>${node.issues || '--'}</td>
     <td>${node.size || '--'}</td>
     <td>${node.updatedAt ? new Date(node.updatedAt).toDateString() : '--'}</td>
     <td><span class="user-badge">${node.updatedByInitials || '--'}</span> ${node.updatedBy || '--'}</td>
+    <td>${node.versionAddedBy || '--'}</td>
+    <td>${node.reviewStatus || '--'}</td>
   `;
 
   if (isFolder) {
@@ -401,8 +472,12 @@ export async function renderFileTable(hubId, projectId, folderId = null, onSelec
     const updatedBy = latestVersion.updatedBy || '--';
     const updatedByInitials = updatedBy.split(' ').map(n => n[0]).join('').toUpperCase();
 
+    console.log('Rendering row for item:', item);
+
     const tr = document.createElement('tr');
     tr.className = isFolder ? 'folder-row' : '';
+    
+    
 
     tr.innerHTML = `
       <td><input type="checkbox" /></td>
@@ -413,6 +488,7 @@ export async function renderFileTable(hubId, projectId, folderId = null, onSelec
       <td>${latestVersion.updatedAt ? new Date(latestVersion.updatedAt).toLocaleString() : '--'}</td>
       <td><span class="user-badge">${updatedByInitials}</span> ${updatedBy}</td>
       <td>${latestVersion.versionAddedBy || '--'}</td>
+      <td>${latestVersion.reviewStatus || '--'}</td>
       <td><i class="fa fa-ellipsis-v"></i></td>
     `;
 
